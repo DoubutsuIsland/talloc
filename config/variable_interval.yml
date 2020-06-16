@@ -14,6 +14,7 @@ Experimental:
   black-bgr-max:    [255, 255, 100]
   white-bgr-min:    [80, 0, 0]
   white-bgr-max:    [255, 255, 140]
+  kernel: [15, 15]
   black-threshold:  2
   white-threshold:  2
   # pin settings

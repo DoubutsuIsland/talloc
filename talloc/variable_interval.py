@@ -27,24 +27,16 @@ expr_vars = config.get_experimental()
 BLACK_THRESHOLD = expr_vars.get("black-threshold")
 WHITE_THRESHOLD = expr_vars.get("white-threshold")
 
-# ROI_WIDTH = expr_vars.get("ROI width")
-# ROI_HEIGHT = expr_vars.get("ROI height")
-# BLACK_ORIGIN = expr_vars.get("black origin")
-# WHITE_ORIGIN = expr_vars.get("white origin")
 BLACK_BGR_MIN = np.array(expr_vars.get("black-bgr-min"))
 BLACK_BGR_MAX = np.array(expr_vars.get("black-bgr-max"))
 WHITE_BGR_MIN = np.array(expr_vars.get("white-bgr-min"))
 WHITE_BGR_MAX = np.array(expr_vars.get("white-bgr-max"))
-# KERNEL = expr_vars("kernel")
+KERNEL = np.ones(tuple(expr_vars.get("kernel")), np.uint8)
 ROI_WIDTH = 440
 ROI_HEIGHT = 380
 BLACK_ORIGIN = (117, 28)
 WHITE_ORIGIN = (106, 45)
-# BLACK_BGR_MIN = np.array([30, 0, 0])
-# BLACK_BGR_MAX = np.array([255, 255, 100])
-# WHITE_BGR_MIN = np.array([80, 0, 0])
-# WHITE_BGR_MAX = np.array([255, 255, 140])
-KERNEL = np.ones((15, 15), np.uint8)
+# KERNEL = np.ones((15, 15), np.uint8)
 PMAX = ROI_WIDTH * ROI_HEIGHT
 
 
@@ -155,8 +147,11 @@ async def record(agent: Recorder, lcap: cv.VideoCapture, rcap: cv.VideoCapture,
             await agent.send_to(WHITE_STIM_ADDR, True)
             agent.rasked = False
         stacked_frame = np.hstack((lframe, rframe))
-        cv.imshow("black << --- >> white", stacked_frame)
-        output.write(stacked_frame)
+        # cv.imshow("black << --- >> white", stacked_frame)
+        await agent.call_async(cv.imshow, "black << --- >> white",
+                               stacked_frame)
+        # output.write(stacked_frame)
+        await agent.call_async(output.write, stacked_frame)
         if cv.waitKey(1) & 0xFF == ord("q"):
             break
     cv.destroyAllWindows()
