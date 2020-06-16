@@ -1,31 +1,31 @@
 Comport:
   port:     "/dev/ttyACM0"
   baudrate: 115200
-  dotino:   "./talloc/proto.ino"
+  dotino:   "./ino/proto.ino"
   warmup:   2.0
 
 
 Experimental:
   # camera settings
-  left-cam:         2
-  right-cam:        4
+  black-cam:        2
+  white-cam:        4
   # bgr = List[uint8]
-  left-bgr-min:     [0, 0, 0]
-  left-bgr-max:     [255, 255, 100]
-  right-bgr-min:    [80, 0, 0]
-  right-bgr-max:    [255, 255, 140]
-  left-threshold:   2
-  right-threshold:  2
+  black-bgr-min:    [30, 0, 0]
+  black-bgr-max:    [255, 255, 100]
+  white-bgr-min:    [80, 0, 0]
+  white-bgr-max:    [255, 255, 140]
+  black-threshold:  2
+  white-threshold:  2
   # pin settings
-  left-led:         5
-  right-led:        7
-  left-reward:      4
-  right-reward:     6
+  black-led:        5
+  white-led:        7
+  black-reward:     4
+  white-reward:     6
   # experimental conditions
-  left-interval:    90 # seconds
-  right-interval:   90 # seconds
+  black-interval:   10 # seconds
+  white-interval:   10 # seconds
   balckout:         10 # seconds
-  trial:            40
+  trial:            10
   session-duration: 2100 # seconds
 
 Metadata:
