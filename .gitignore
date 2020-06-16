@@ -1,0 +1,4 @@
+/*.egg-info
+/poetry.lock
+/.venv
+__pycache__/
