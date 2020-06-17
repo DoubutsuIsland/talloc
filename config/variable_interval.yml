@@ -10,7 +10,7 @@ Experimental:
   black-cam:        2
   white-cam:        4
   # bgr = List[uint8]
-  black-bgr-min:    [30, 0, 0]
+  black-bgr-min:    [20, 0, 0]
   black-bgr-max:    [255, 255, 100]
   white-bgr-min:    [80, 0, 0]
   white-bgr-max:    [255, 255, 140]
@@ -23,11 +23,11 @@ Experimental:
   black-reward:     4
   white-reward:     6
   # experimental conditions
-  black-interval:   10 # seconds
-  white-interval:   10 # seconds
-  balckout:         10 # seconds
-  trial:            10
-  session-duration: 2100 # seconds
+  black-interval:   90 # seconds
+  white-interval:   90 # seconds
+  blackout:         10 # seconds
+  trial:            40
+  session-duration: 2400 # seconds
 
 Metadata:
   subject: g1c

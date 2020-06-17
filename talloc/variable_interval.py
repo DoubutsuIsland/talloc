@@ -39,6 +39,9 @@ WHITE_ORIGIN = (106, 45)
 # KERNEL = np.ones((15, 15), np.uint8)
 PMAX = ROI_WIDTH * ROI_HEIGHT
 
+events: List[Tuple[float, int]] = []
+trial = 0
+
 
 def init_table(interval: float, n: int) -> List:
     rate = 1 / interval
@@ -57,14 +60,15 @@ def init_table(interval: float, n: int) -> List:
 
 
 async def stimulate(agent: Agent, ino: Arduino, led: int, reward: int,
-                    intervals: List[float]) -> None:
-    events: List[Tuple[float, str]] = []
+                    intervals: List[float], blackout: float,
+                    max_trial: int) -> None:
+    global trial
     _ = await agent.fetch_from_observer()
-    events.append((perf_counter(), "session start"))
+    print("hoge")
+    events.append((perf_counter(), 1))
     for interval in intervals:
-        # print(f"{agent.addr} {interval}")
         ino.digital_write(led, LIGHT_HIGH)
-        events.append((perf_counter(), "light on"))
+        events.append((perf_counter(), led))
         await agent.sleep(interval)
         await agent.send_to(CAMAERA_ADDR, "is mouse in the box?")
         while True:
@@ -75,19 +79,14 @@ async def stimulate(agent: Agent, ino: Arduino, led: int, reward: int,
         ino.digital_write(reward, HIGH)
         await agent.sleep(0.1)
         ino.digital_write(reward, LOW)
-        events.append((perf_counter(), "reward on"))
-        await agent.sleep(5)
-
+        events.append((perf_counter(), reward))
+        trial += 1
+        if trial >= max_trial:
+            break
+        await agent.sleep(blackout)
+    events.append((perf_counter(), 0))
     if agent.working():
         await agent.send_to(OBSERVER, "session terminated")
-
-    # now = datetime.datetime.now().strftime("%m%d%y%H%M%S")
-    # fname = "-".join([SUBJECT, CONDITION, now]) + ".csv"
-    # with open(fname, "w") as f:
-    #     f.write("time, event\n")
-    #     for event in events:
-    #         t, e = event
-    #         f.write(f"{t}, {e}\n")
     return None
 
 
@@ -130,16 +129,14 @@ async def record(agent: Recorder, lcap: cv.VideoCapture, rcap: cv.VideoCapture,
     await agent.send_to(OBSERVER, "I'm ready")
     _ = await agent.fetch_from_observer()
     while agent.working():
-        lret, lframe = await agent.call_async(lcap.read)
-        rret, rframe = await agent.call_async(rcap.read)
-        if not lret and not rret:
+        lret, lframe = lcap.read()
+        rret, rframe = rcap.read()
+        if not lret or not rret:
             continue
         lmouseish, lmframe = mouseish(lframe, black_roi, BLACK_BGR_MIN,
                                       BLACK_BGR_MAX)
         rmouseish, rmframe = mouseish(rframe, white_roi, WHITE_BGR_MIN,
                                       WHITE_BGR_MAX)
-        print(f"black: {lmouseish}")
-        print(f"white: {rmouseish}")
         if agent.lasked and lmouseish > BLACK_THRESHOLD:
             await agent.send_to(BLACK_STIM_ADDR, True)
             agent.lasked = False
@@ -147,9 +144,7 @@ async def record(agent: Recorder, lcap: cv.VideoCapture, rcap: cv.VideoCapture,
             await agent.send_to(WHITE_STIM_ADDR, True)
             agent.rasked = False
         stacked_frame = np.hstack((lframe, rframe))
-        # cv.imshow("black << --- >> white", stacked_frame)
-        await agent.call_async(cv.imshow, "black << --- >> white",
-                               stacked_frame)
+        cv.imshow("black << --- >> white", stacked_frame)
         # output.write(stacked_frame)
         await agent.call_async(output.write, stacked_frame)
         if cv.waitKey(1) & 0xFF == ord("q"):
@@ -192,6 +187,13 @@ async def kill(agent: Observer) -> None:
     return None
 
 
+async def timeout(agent: Observer, session_duration: float) -> None:
+    await agent.sleep(session_duration)
+    if agent.working():
+        await agent.send_all("session end")
+        agent.finish()
+
+
 async def quit(agent: Agent) -> None:
     while agent.working():
         _, mess = await agent.fetch_from_observer()
@@ -212,7 +214,9 @@ if __name__ == '__main__':
     WHITE_REWARD = expr_vars.get("white-reward")
     BLACK_INTERVAL = expr_vars.get("black-interval")
     WHITE_INTERVAL = expr_vars.get("white-interval")
+    BLACKOUT = expr_vars.get("blackout")
     SESSION_DURATION = expr_vars.get("session-duration")
+    NUM_TRIAL = expr_vars.get("trial")
     LCAM = expr_vars.get("black-cam")
     RCAM = expr_vars.get("white-cam")
 
@@ -237,13 +241,15 @@ if __name__ == '__main__':
 
     lstim = Agent(BLACK_STIM_ADDR) \
         .assign_task(stimulate, ino=ino, led=BLACK_LED,
-                     reward=BLACK_REWARD, intervals=black_intervals) \
+                     reward=BLACK_REWARD, intervals=black_intervals,
+                     blackout=BLACKOUT, max_trial=NUM_TRIAL) \
         .assign_task(sort) \
         .assign_task(quit)
 
     rstim = Agent(WHITE_STIM_ADDR) \
         .assign_task(stimulate, ino=ino, led=WHITE_LED,
-                     reward=WHITE_REWARD, intervals=white_intervals) \
+                     reward=WHITE_REWARD, intervals=white_intervals,
+                     blackout=BLACKOUT, max_trial=NUM_TRIAL) \
         .assign_task(sort) \
         .assign_task(quit)
 
@@ -255,20 +261,29 @@ if __name__ == '__main__':
         .assign_task(asked) \
         .assign_task(sort) \
         .assign_task(quit)
-    observer = Observer().assign_task(kill).assign_task(sort)
+    observer = Observer().assign_task(kill).assign_task(sort) \
+        .assign_task(timeout, session_duration=SESSION_DURATION)
 
     rgist = Register([recorder, observer, lstim, rstim])
     env_rec = Environment([recorder, observer])
     env_stim = Environment([lstim, rstim])
 
     try:
-        env_stim.parallelize()
-        env_rec.run()
-        env_stim.join()
-        # env_rec.parallelize()
-        # env_stim.run()
-        # env_rec.join()
+        # env_stim.parallelize()
+        # env_rec.run()
+        # env_stim.join()
+        env_rec.parallelize()
+        env_stim.run()
+        env_rec.join()
     finally:
         lcap.release()
         rcap.release()
         output.release()
+        print(events)
+        fname = basename + ".csv"
+        with open(fname, "w") as f:
+            f.write("time, event\n")
+            for event in events:
+                t, e = event
+                print(f"{t}: {e}")
+                f.write(f"{t}, {e}\n")
