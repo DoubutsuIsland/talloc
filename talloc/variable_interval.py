@@ -63,30 +63,33 @@ async def stimulate(agent: Agent, ino: Arduino, led: int, reward: int,
                     intervals: List[float], blackout: float,
                     max_trial: int) -> None:
     global trial
-    _ = await agent.fetch_from_observer()
-    print("hoge")
+    _ = await agent.recv_from_observer()
     events.append((perf_counter(), 1))
-    for interval in intervals:
-        ino.digital_write(led, LIGHT_HIGH)
-        events.append((perf_counter(), led))
-        await agent.sleep(interval)
-        await agent.send_to(CAMAERA_ADDR, "is mouse in the box?")
-        while True:
-            _, mess = await agent.fetch_from_others()
-            if mess:
+    try:
+        for interval in intervals:
+            ino.digital_write(led, LIGHT_HIGH)
+            events.append((perf_counter(), led))
+            await agent.sleep(interval)
+            agent.send_to(CAMAERA_ADDR, "is mouse in the box?")
+            print(f"reward is set in {agent.addr}")
+            while True:
+                _, mess = await agent.recv()
+                if mess:
+                    break
+            ino.digital_write(led, LIGHT_LOW)
+            ino.digital_write(reward, HIGH)
+            await agent.sleep(0.1)
+            ino.digital_write(reward, LOW)
+            events.append((perf_counter(), reward))
+            trial += 1
+            if trial >= max_trial:
                 break
-        ino.digital_write(led, LIGHT_LOW)
-        ino.digital_write(reward, HIGH)
-        await agent.sleep(0.1)
-        ino.digital_write(reward, LOW)
-        events.append((perf_counter(), reward))
-        trial += 1
-        if trial >= max_trial:
-            break
-        await agent.sleep(blackout)
-    events.append((perf_counter(), 0))
-    if agent.working():
-        await agent.send_to(OBSERVER, "session terminated")
+            await agent.sleep(blackout)
+        events.append((perf_counter(), 0))
+        if agent.working():
+            agent.send_to(OBSERVER, "session terminated")
+    except NotWorkingError:
+        pass
     return None
 
 
@@ -126,77 +129,69 @@ async def record(agent: Recorder, lcap: cv.VideoCapture, rcap: cv.VideoCapture,
                  output: cv.VideoWriter) -> None:
     black_roi = calc_roi(BLACK_ORIGIN, ROI_WIDTH, ROI_HEIGHT)
     white_roi = calc_roi(WHITE_ORIGIN, ROI_WIDTH, ROI_HEIGHT)
-    await agent.send_to(OBSERVER, "I'm ready")
-    _ = await agent.fetch_from_observer()
-    while agent.working():
-        lret, lframe = lcap.read()
-        rret, rframe = rcap.read()
-        if not lret or not rret:
-            continue
-        lmouseish, lmframe = mouseish(lframe, black_roi, BLACK_BGR_MIN,
-                                      BLACK_BGR_MAX)
-        rmouseish, rmframe = mouseish(rframe, white_roi, WHITE_BGR_MIN,
-                                      WHITE_BGR_MAX)
-        if agent.lasked and lmouseish > BLACK_THRESHOLD:
-            await agent.send_to(BLACK_STIM_ADDR, True)
-            agent.lasked = False
-        if agent.rasked and rmouseish > WHITE_THRESHOLD:
-            await agent.send_to(WHITE_STIM_ADDR, True)
-            agent.rasked = False
-        stacked_frame = np.hstack((lframe, rframe))
-        cv.imshow("black << --- >> white", stacked_frame)
-        # output.write(stacked_frame)
-        await agent.call_async(output.write, stacked_frame)
-        if cv.waitKey(1) & 0xFF == ord("q"):
-            break
+    _ = lcap.read()
+    _ = rcap.read()
+    agent.send_to(OBSERVER, "I'm ready")
+    _ = await agent.recv_from_observer()
+    try:
+        while agent.working():
+            lret, lframe = lcap.read()
+            rret, rframe = rcap.read()
+            if not lret or not rret:
+                continue
+            lmouseish, lmframe = mouseish(lframe, black_roi, BLACK_BGR_MIN,
+                                          BLACK_BGR_MAX)
+            rmouseish, rmframe = mouseish(rframe, white_roi, WHITE_BGR_MIN,
+                                          WHITE_BGR_MAX)
+            if agent.lasked and lmouseish > BLACK_THRESHOLD:
+                await agent.send_to(BLACK_STIM_ADDR, True)
+                agent.lasked = False
+                print("reward is presented in left box")
+            if agent.rasked and rmouseish > WHITE_THRESHOLD:
+                await agent.send_to(WHITE_STIM_ADDR, True)
+                agent.rasked = False
+                print("reward is presented in right box")
+            stacked_frame = np.hstack((lframe, rframe))
+            cv.imshow("black << --- >> white", stacked_frame)
+            await agent.call_async(output.write, stacked_frame)
+            if cv.waitKey(1) & 0xFF == ord("q"):
+                break
+    except NotWorkingError:
+        pass
     cv.destroyAllWindows()
     if agent.working():
-        await agent.send_to(OBSERVER, "session terminated")
+        agent.send_to(OBSERVER, "session terminated")
     return None
 
 
 async def asked(agent: Recorder) -> None:
-    while agent.working():
-        sender, mess = await agent.fetch_from_others()
-        print(mess)
-        if sender == BLACK_STIM_ADDR:
-            agent.lasked = True
-        elif sender == WHITE_STIM_ADDR:
-            agent.rasked = True
+    try:
+        while agent.working():
+            sender, mess = await agent.recv()
+            if sender == BLACK_STIM_ADDR:
+                agent.lasked = True
+            elif sender == WHITE_STIM_ADDR:
+                agent.rasked = True
+    except NotWorkingError:
+        pass
     return None
 
 
-async def sort(agent: Agent) -> None:
+async def kill(agent: Observer, session_duration: float) -> None:
+    _, mess = await agent.recv()
+    agent.send_all("start")
     while agent.working():
-        try:
-            await agent.sort_mail()
-        except NotWorkingError:
-            pass
-    return None
-
-
-async def kill(agent: Observer) -> None:
-    _, mess = await agent.fetch_from_others()
-    await agent.send_all("start")
-    while agent.working():
-        _, mess = await agent.fetch_from_others()
-        if mess == "session end" or mess == "session terminated":
-            await agent.send_all(mess)
-            agent.finish()
-            break
-    return None
-
-
-async def timeout(agent: Observer, session_duration: float) -> None:
-    await agent.sleep(session_duration)
-    if agent.working():
-        await agent.send_all("session end")
+        _ = await agent.try_recv(session_duration)
+        agent.send_all(mess)
         agent.finish()
+        break
+    return None
 
 
 async def quit(agent: Agent) -> None:
+    await agent.sleep(7.5)
     while agent.working():
-        _, mess = await agent.fetch_from_observer()
+        _, mess = await agent.recv_from_observer()
         if mess == "session end" or mess == "session terminated":
             agent.finish()
             break
@@ -243,14 +238,12 @@ if __name__ == '__main__':
         .assign_task(stimulate, ino=ino, led=BLACK_LED,
                      reward=BLACK_REWARD, intervals=black_intervals,
                      blackout=BLACKOUT, max_trial=NUM_TRIAL) \
-        .assign_task(sort) \
         .assign_task(quit)
 
     rstim = Agent(WHITE_STIM_ADDR) \
         .assign_task(stimulate, ino=ino, led=WHITE_LED,
                      reward=WHITE_REWARD, intervals=white_intervals,
                      blackout=BLACKOUT, max_trial=NUM_TRIAL) \
-        .assign_task(sort) \
         .assign_task(quit)
 
     lcap = cv.VideoCapture(LCAM)
@@ -259,10 +252,8 @@ if __name__ == '__main__':
     recorder = Recorder(CAMAERA_ADDR) \
         .assign_task(record, lcap=lcap, rcap=rcap, output=output) \
         .assign_task(asked) \
-        .assign_task(sort) \
         .assign_task(quit)
-    observer = Observer().assign_task(kill).assign_task(sort) \
-        .assign_task(timeout, session_duration=SESSION_DURATION)
+    observer = Observer().assign_task(kill, session_duration=SESSION_DURATION)
 
     rgist = Register([recorder, observer, lstim, rstim])
     env_rec = Environment([recorder, observer])
@@ -279,11 +270,9 @@ if __name__ == '__main__':
         lcap.release()
         rcap.release()
         output.release()
-        print(events)
         fname = basename + ".csv"
         with open(fname, "w") as f:
             f.write("time, event\n")
             for event in events:
                 t, e = event
-                print(f"{t}: {e}")
                 f.write(f"{t}, {e}\n")
