@@ -64,6 +64,7 @@ async def stimulate(agent: Agent, ino: Arduino, led: int, reward: int,
                     max_trial: int) -> None:
     global trial
     _ = await agent.recv_from_observer()
+    print(f"{agent.addr} started")
     events.append((perf_counter(), 1))
     try:
         for interval in intervals:
@@ -90,6 +91,8 @@ async def stimulate(agent: Agent, ino: Arduino, led: int, reward: int,
             agent.send_to(OBSERVER, "session terminated")
     except NotWorkingError:
         pass
+    print(f"{agent.addr} stopped")
+    ino.digital_write(led, LIGHT_LOW)
     return None
 
 
@@ -133,6 +136,7 @@ async def record(agent: Recorder, lcap: cv.VideoCapture, rcap: cv.VideoCapture,
     _ = rcap.read()
     agent.send_to(OBSERVER, "I'm ready")
     _ = await agent.recv_from_observer()
+    print(f"{agent.addr} started")
     try:
         while agent.working():
             lret, lframe = lcap.read()
@@ -161,6 +165,7 @@ async def record(agent: Recorder, lcap: cv.VideoCapture, rcap: cv.VideoCapture,
     cv.destroyAllWindows()
     if agent.working():
         agent.send_to(OBSERVER, "session terminated")
+    print(f"{agent.addr} stopped")
     return None
 
 
@@ -182,19 +187,23 @@ async def kill(agent: Observer, session_duration: float) -> None:
     agent.send_all("start")
     while agent.working():
         _ = await agent.try_recv(session_duration)
-        agent.send_all(mess)
+        agent.send_all("session terminated")
         agent.finish()
         break
+    print(f"{agent.addr} stopped")
     return None
 
 
 async def quit(agent: Agent) -> None:
     await agent.sleep(7.5)
     while agent.working():
+        print(f"{agent.addr} await message from observer")
         _, mess = await agent.recv_from_observer()
+        print(f"{agent.addr} recv {mess} from observer")
         if mess == "session end" or mess == "session terminated":
             agent.finish()
             break
+    print(f"{agent.addr} quited")
     return None
 
 
@@ -202,6 +211,7 @@ if __name__ == '__main__':
     from amas.env import Environment
     from amas.connection import Register
     from pino.ino import OUTPUT, Comport
+    from os.path import join
 
     BLACK_LED = expr_vars.get("black-led")
     BLACK_REWARD = expr_vars.get("black-reward")
@@ -230,8 +240,9 @@ if __name__ == '__main__':
 
     now = datetime.datetime.now().strftime("%m%d%y%H%M%S")
     basename = "-".join([SUBJECT, CONDITION, now])
+    fpath = join("data", basename)
     fourcc = cv.VideoWriter_fourcc(*"mp4v")
-    videoname = basename + ".MP4"
+    videoname = fpath + ".MP4"
     output = cv.VideoWriter(videoname, fourcc, 30.0, (1280, 480))
 
     lstim = Agent(BLACK_STIM_ADDR) \
@@ -270,7 +281,7 @@ if __name__ == '__main__':
         lcap.release()
         rcap.release()
         output.release()
-        fname = basename + ".csv"
+        fname = fpath + ".csv"
         with open(fname, "w") as f:
             f.write("time, event\n")
             for event in events:
