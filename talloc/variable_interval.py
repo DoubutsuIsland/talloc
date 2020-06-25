@@ -128,10 +128,16 @@ class Recorder(Agent):
         self.rasked = False
 
 
-async def record(agent: Recorder, lcap: cv.VideoCapture, rcap: cv.VideoCapture,
-                 output: cv.VideoWriter) -> None:
+async def record(agent: Recorder, lcap: cv.VideoCapture,
+                 rcap: cv.VideoCapture) -> None:
     black_roi = calc_roi(BLACK_ORIGIN, ROI_WIDTH, ROI_HEIGHT)
     white_roi = calc_roi(WHITE_ORIGIN, ROI_WIDTH, ROI_HEIGHT)
+    now = datetime.datetime.now().strftime("%m%d%y%H%M%S")
+    basename = "-".join([SUBJECT, CONDITION, now])
+    fpath = join("data", basename)
+    fourcc = cv.VideoWriter_fourcc(*"mp4v")
+    videoname = fpath + ".MP4"
+    output = cv.VideoWriter(videoname, fourcc, 30.0, (1280, 480))
     _ = lcap.read()
     _ = rcap.read()
     agent.send_to(OBSERVER, "I'm ready")
@@ -148,16 +154,17 @@ async def record(agent: Recorder, lcap: cv.VideoCapture, rcap: cv.VideoCapture,
             rmouseish, rmframe = mouseish(rframe, white_roi, WHITE_BGR_MIN,
                                           WHITE_BGR_MAX)
             if agent.lasked and lmouseish > BLACK_THRESHOLD:
-                await agent.send_to(BLACK_STIM_ADDR, True)
+                agent.send_to(BLACK_STIM_ADDR, True)
                 agent.lasked = False
                 print("reward is presented in left box")
             if agent.rasked and rmouseish > WHITE_THRESHOLD:
-                await agent.send_to(WHITE_STIM_ADDR, True)
+                agent.send_to(WHITE_STIM_ADDR, True)
                 agent.rasked = False
                 print("reward is presented in right box")
             stacked_frame = np.hstack((lframe, rframe))
             cv.imshow("black << --- >> white", stacked_frame)
-            await agent.call_async(output.write, stacked_frame)
+            await agent.sleep(0.001)
+            output.write(stacked_frame)
             if cv.waitKey(1) & 0xFF == ord("q"):
                 break
     except NotWorkingError:
@@ -166,6 +173,7 @@ async def record(agent: Recorder, lcap: cv.VideoCapture, rcap: cv.VideoCapture,
     if agent.working():
         agent.send_to(OBSERVER, "session terminated")
     print(f"{agent.addr} stopped")
+    output.release()
     return None
 
 
@@ -238,12 +246,12 @@ if __name__ == '__main__':
     whiten = SESSION_DURATION // WHITE_INTERVAL
     white_intervals = init_table(BLACK_INTERVAL, whiten)
 
-    now = datetime.datetime.now().strftime("%m%d%y%H%M%S")
+    now = datetime.datetime.now().strftime("%m%d%y")
     basename = "-".join([SUBJECT, CONDITION, now])
     fpath = join("data", basename)
-    fourcc = cv.VideoWriter_fourcc(*"mp4v")
-    videoname = fpath + ".MP4"
-    output = cv.VideoWriter(videoname, fourcc, 30.0, (1280, 480))
+    # fourcc = cv.VideoWriter_fourcc(*"mp4v")
+    # videoname = fpath + ".MP4"
+    # output = cv.VideoWriter(videoname, fourcc, 30.0, (1280, 480))
 
     lstim = Agent(BLACK_STIM_ADDR) \
         .assign_task(stimulate, ino=ino, led=BLACK_LED,
@@ -261,14 +269,14 @@ if __name__ == '__main__':
     rcap = cv.VideoCapture(RCAM)
 
     recorder = Recorder(CAMAERA_ADDR) \
-        .assign_task(record, lcap=lcap, rcap=rcap, output=output) \
+        .assign_task(record, lcap=lcap, rcap=rcap) \
         .assign_task(asked) \
         .assign_task(quit)
     observer = Observer().assign_task(kill, session_duration=SESSION_DURATION)
 
     rgist = Register([recorder, observer, lstim, rstim])
-    env_rec = Environment([recorder, observer])
-    env_stim = Environment([lstim, rstim])
+    env_rec = Environment([recorder])
+    env_stim = Environment([lstim, rstim, observer])
 
     try:
         # env_stim.parallelize()
@@ -280,7 +288,7 @@ if __name__ == '__main__':
     finally:
         lcap.release()
         rcap.release()
-        output.release()
+        # output.release()
         fname = fpath + ".csv"
         with open(fname, "w") as f:
             f.write("time, event\n")
