@@ -2,6 +2,7 @@
 /poetry.lock
 /.venv
 __pycache__/
+/data
 /*.MP4
 /*.csv
 /data
