@@ -9,6 +9,7 @@ Experimental:
   # camera settings
   black-cam:        2
   white-cam:        4
+  color-temp:       8000
   # bgr = List[uint8]
   black-bgr-min:    [20, 0, 0]
   black-bgr-max:    [255, 255, 100]
