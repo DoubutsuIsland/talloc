@@ -32,6 +32,7 @@ BLACK_BGR_MAX = np.array(expr_vars.get("black-bgr-max"))
 WHITE_BGR_MIN = np.array(expr_vars.get("white-bgr-min"))
 WHITE_BGR_MAX = np.array(expr_vars.get("white-bgr-max"))
 KERNEL = np.ones(tuple(expr_vars.get("kernel")), np.uint8)
+COLOR_TEMP = expr_vars.get("color-temp")
 ROI_WIDTH = 440
 ROI_HEIGHT = 380
 BLACK_ORIGIN = (117, 28)
@@ -146,7 +147,9 @@ async def record(agent: Recorder, lcap: cv.VideoCapture,
     try:
         while agent.working():
             lret, lframe = lcap.read()
+            lcap.set(cv.CAP_PROP_TEMPREATURE, COLOR_TEMP)
             rret, rframe = rcap.read()
+            rcap.set(cv.CAP_PROP_TEMPREATURE, COLOR_TEMP)
             if not lret or not rret:
                 continue
             lmouseish, lmframe = mouseish(lframe, black_roi, BLACK_BGR_MIN,
